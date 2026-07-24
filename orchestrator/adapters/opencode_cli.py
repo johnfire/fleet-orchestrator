@@ -17,13 +17,17 @@ from .base import AgentRequest, AgentResult
 class OpencodeAdapter:
     name = "opencode"
 
-    def __init__(self, binary: str = "opencode", timeout_seconds: int = 1800) -> None:
+    def __init__(self, binary: str = "opencode", auto_approve: bool = True,
+                 timeout_seconds: int = 1800) -> None:
         self._binary = binary
+        self._auto_approve = auto_approve
         self._timeout_seconds = timeout_seconds
 
     def invoke(self, request: AgentRequest) -> AgentResult:
         command = [self._binary, "run", request.instruction, "--format", "json",
                    "--dir", str(request.workspace)]
+        if self._auto_approve:
+            command.append("--auto")  # non-interactive pipeline in an isolated worktree
         if request.model:
             command += ["-m", request.model]
         if request.effort:
