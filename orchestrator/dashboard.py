@@ -87,7 +87,10 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/":
             self._send(200, _PAGE, content_type="text/html")
         elif path == "/api/tasks":
-            self._send_json(200, {"tasks": task_summaries(self.engine.store)})
+            self._send_json(200, {
+                "tasks": task_summaries(self.engine.store),
+                "read_only": bool(self.server.read_only),  # type: ignore[attr-defined]
+            })
         elif path.startswith("/api/tasks/"):
             self._send_json(200, task_detail(self.engine.store, path.split("/")[-1]))
         else:
@@ -95,6 +98,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         if not self._require_auth():
+            return
+        if self.server.read_only:  # type: ignore[attr-defined]
+            self._send_json(403, {"error": "dashboard is read-only (this is a mirror; act on the host that runs the engine)"})
             return
         path = urlparse(self.path).path
         parts = path.split("/")
@@ -128,12 +134,14 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def serve(engine: Engine, port: int = 8787, host: str = "127.0.0.1",
-          auth: tuple[str, str] | None = None) -> None:
+          auth: tuple[str, str] | None = None, read_only: bool = False) -> None:
     server = ThreadingHTTPServer((host, port), _Handler)
     server.engine = engine  # type: ignore[attr-defined]
     server.auth = auth  # type: ignore[attr-defined]
+    server.read_only = read_only  # type: ignore[attr-defined]
     guarded = "auth on" if auth else "NO AUTH — bind to localhost only"
-    print(f"fleet-orchestrator dashboard on http://{host}:{port} ({guarded})")
+    mode = "read-only" if read_only else "read-write"
+    print(f"fleet-orchestrator dashboard on http://{host}:{port} ({guarded}, {mode})")
     server.serve_forever()
 
 
@@ -172,13 +180,14 @@ async function resolve(id,action){
  const r=await post(`/api/tasks/${id}/resolve`,body);if(!r.ok){const e=await r.json();alert(e.error||'failed')}}
 function esc(s){return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
 async function load(){
- const r=await fetch('/api/tasks');const {tasks}=await r.json();
+ const r=await fetch('/api/tasks');const data=await r.json();const tasks=data.tasks;const ro=data.read_only;
  const need=tasks.filter(t=>t.status==='blocked_on_human'||t.status==='escalated');
- document.getElementById('sub').textContent=`${tasks.length} tasks · ${need.length} need you`;
+ document.getElementById('sub').textContent=`${tasks.length} tasks · ${need.length} need you`+(ro?' · read-only mirror':'');
  document.getElementById('inbox').innerHTML=need.length?need.map(t=>{
    const g=t.open_gate||{};const danger=t.status==='escalated';
    let btns;
-   if(danger){btns=['retry','reassign','take_over','abort'].map(a=>`<button onclick="resolve('${t.task_id}','${a}')">${esc(a.replace('_',' '))}</button>`).join('')}
+   if(ro){btns='<span class="muted">view-only — act on the host running the engine</span>'}
+   else if(danger){btns=['retry','reassign','take_over','abort'].map(a=>`<button onclick="resolve('${t.task_id}','${a}')">${esc(a.replace('_',' '))}</button>`).join('')}
    else{const opts=g.options?Object.keys(g.options):[];btns=opts.map(c=>`<button onclick="decide('${t.task_id}','${c}')">${esc(c)}</button>`).join('')}
    const msg=danger?esc(g.reason||'escalated — needs attention'):esc(g.prompt||'');
    return `<div class="card ${danger?'gate-danger':'gate-warn'}"><div class="row">

@@ -109,7 +109,8 @@ def main(argv: list[str] | None = None) -> int:
         user = os.environ.get("DASHBOARD_USER")
         password = os.environ.get("DASHBOARD_PASSWORD")
         auth = (user, password) if user and password else None
-        serve(engine, port=args.port, host=args.host, auth=auth)
+        read_only = os.environ.get("DASHBOARD_READONLY", "").lower() in ("1", "true", "yes")
+        serve(engine, port=args.port, host=args.host, auth=auth, read_only=read_only)
     elif args.command == "demo":
         from .demo import run_demo
         demo_engine, task_id = run_demo(PROJECT_ROOT, args.flow)
