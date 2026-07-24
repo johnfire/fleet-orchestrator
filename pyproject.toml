@@ -1,0 +1,26 @@
+[project]
+name = "fleet-orchestrator"
+version = "0.1.0"
+description = "Deterministic control plane for orchestrating multiple coding agents across harnesses"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+orchestrator = "orchestrator.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["orchestrator", "orchestrator.adapters"]

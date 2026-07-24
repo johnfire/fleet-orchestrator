@@ -1,0 +1,68 @@
+flow:
+  name: standard-build
+  version: 1
+  start: plan
+  description: plan -> build -> review (with rework loop) -> push -> pentest
+
+human_channel:
+  transport: ntfy
+  topic: fleet-orchestrator
+
+workspace:
+  strategy: git-worktree
+  base_branch: main
+  task_branch: "task/{task_id}"
+
+bindings:
+  planner:   { agent: claude-desktop, model: claude-opus-4-8, effort: high }
+  builder:   { agent: opencode,       model: openrouter/deepseek-v4 }
+  reviewer:  { agent: codex,          model: gpt-5.6 }
+  pentester: { agent: hermes,         model: deepseek-v4 }
+
+nodes:
+  - id: plan
+    role: planner
+    instruction: templates/plan.md
+    produces: [spec, acceptance_tests]
+    on_pass: approve_plan
+    on_fail: { route: plan, max_iterations: 0, on_exhausted: escalate }
+
+  - id: approve_plan
+    type: human_gate
+    prompt: "Plan ready. Approve spec to start automatic build?"
+    options: { approve: build, edit_spec: plan, abort: end }
+
+  - id: build
+    role: builder
+    instruction: templates/build.md
+    inputs: [spec, acceptance_tests, review_notes]
+    on_pass: review
+    on_fail: { route: build, max_iterations: 3, on_exhausted: escalate }
+
+  - id: review
+    role: reviewer
+    instruction: templates/review.md
+    gates: [run_build, run_tests, lint, coding_standards_check]
+    on_pass: decide_next
+    on_fail: { route: build, carry: review_notes, max_iterations: 3, on_exhausted: escalate }
+
+  - id: decide_next
+    type: human_gate
+    prompt: "Review passed. What now?"
+    options: { push: push, pentest_first: pentest, both: pentest, hold: end }
+    default: both
+
+  - id: pentest
+    role: pentester
+    instruction: templates/pentest.md
+    on_pass: push
+    on_fail: { route: build, carry: review_notes, max_iterations: 2, on_exhausted: escalate }
+
+  - id: push
+    type: action
+    run: git_push
+    on_pass: end
+
+escalate:
+  notify: human_channel
+  await: [retry, reassign, take_over, abort]
