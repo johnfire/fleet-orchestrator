@@ -17,6 +17,7 @@ from .adapters.base import Adapter, AgentRequest
 from .events import Event, EventStream, EventType
 from .flow import Binding, Flow, Node, NodeType, OnFail, load_flow
 from .gates import run_gate
+from .notify import NullNotifier, Notifier
 from .store import TaskState, TaskStatus, TaskStore
 from .workspace import commit_all, create_worktree, push_branch
 
@@ -25,11 +26,13 @@ _ESCALATE = "escalate"
 
 
 class Engine:
-    def __init__(self, project_root: Path, adapters: dict[str, Adapter]) -> None:
+    def __init__(self, project_root: Path, adapters: dict[str, Adapter],
+                 notifier: Notifier | None = None) -> None:
         self._root = project_root
         self._flows_dir = project_root / "flows"
         self._runs_dir = project_root / "runs"
         self._adapters = adapters
+        self._notifier = notifier or NullNotifier()
         self.store = TaskStore(self._runs_dir)
 
     def start_task(self, flow_name: str, request: str, target_repo: str | None = None) -> str:
@@ -233,9 +236,18 @@ class Engine:
         self._emit(stream, task_id, EventType.HUMAN_GATE_OPENED, node.node_id, {
             "prompt": node.prompt, "options": node.options, "default": node.default,
         })
+        self._push(EventType.HUMAN_GATE_OPENED.value, task_id, f"{task_id}: needs a decision",
+                   node.prompt or "gate", list(node.options))
 
     def _escalate(self, stream: EventStream, task_id: str, node: Node, reason: str) -> None:
         self._emit(stream, task_id, EventType.ESCALATED, node.node_id, {"reason": reason})
+        self._push("escalation", task_id, f"{task_id}: escalated", reason, ["retry", "abort"])
+
+    def _push(self, kind: str, task_id: str, title: str, message: str, choices: list[str]) -> None:
+        try:
+            self._notifier.notify(kind, task_id, title, message, choices)
+        except Exception as exc:  # a notifier must never break the run
+            print(f"[engine] notifier raised (non-fatal): {exc}")
 
     def _goto(self, stream: EventStream, task_id: str, node: Node, target: str) -> None:
         if target == _TERMINAL:

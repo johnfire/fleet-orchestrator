@@ -15,14 +15,33 @@ import argparse
 import json
 from pathlib import Path
 
+import os
+
 from .adapters.registry import default_adapters
 from .engine import Engine
+from .notify import NtfyNotifier, NullNotifier
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+def build_notifier():
+    """Configure the ntfy back-channel from env, else no-op.
+
+    NTFY_TOPIC (required to enable), NTFY_SERVER (default ntfy.sh),
+    ORCH_DASHBOARD_URL (public dashboard base for action buttons).
+    """
+    topic = os.environ.get("NTFY_TOPIC")
+    if not topic:
+        return NullNotifier()
+    return NtfyNotifier(
+        topic=topic,
+        server=os.environ.get("NTFY_SERVER", "https://ntfy.sh"),
+        dashboard_url=os.environ.get("ORCH_DASHBOARD_URL"),
+    )
+
+
 def build_engine() -> Engine:
-    return Engine(PROJECT_ROOT, default_adapters())
+    return Engine(PROJECT_ROOT, default_adapters(), notifier=build_notifier())
 
 
 def _print_state(engine: Engine, task_id: str) -> None:

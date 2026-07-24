@@ -44,11 +44,15 @@ skips — enforcement is opt-in per repo.
 
 The dashboard is a dependency-free read model over the event streams:
 `python -m orchestrator.cli dashboard` serves a gate inbox + task table on
-`http://127.0.0.1:8787` and forwards gate decisions to the engine.
+`http://127.0.0.1:8787`, forwards gate decisions to the engine, and resolves
+escalations (retry / reassign / take-over / abort).
 
-Not built yet: escalation-action wiring (retry/reassign/take-over as decisions),
-the ntfy actionable back-channel, and a live end-to-end run against the real
-agents. See `flows/standard-build.yaml`.
+The ntfy back-channel is opt-in via env — set `NTFY_TOPIC` (and optionally
+`NTFY_SERVER`, `ORCH_DASHBOARD_URL` for phone action buttons) and gate/escalation
+alerts push to your phone. A notification failure never breaks the run.
+
+Not built yet: a live end-to-end run against the real agents; later, migrating
+opencode/hermes to ACP and codex to MCP (see `docs/adapter-protocol-spike.md`).
 
 ## Layout
 
