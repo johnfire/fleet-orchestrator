@@ -66,17 +66,30 @@ class Engine:
             raise RuntimeError(f"worktree setup failed: {outcome.output}")
         return branch
 
+    _HALTED = (TaskStatus.BLOCKED_ON_HUMAN, TaskStatus.ESCALATED, TaskStatus.HANDED_OVER,
+               TaskStatus.COMPLETED, TaskStatus.ABORTED)
+
     def run(self, task_id: str) -> TaskState:
-        """Advance the task until it blocks on a human or reaches a terminal state."""
+        """Advance the task until it blocks on a human or reaches a terminal state.
+
+        Any unexpected error while processing a node (a crashed adapter, a bad flow edit)
+        escalates the task instead of crashing the process — a single failing task must
+        never wedge the orchestrator or lose the event trail.
+        """
         while True:
             state = self.store.state(task_id)
             assert state is not None
-            if state.status in (TaskStatus.BLOCKED_ON_HUMAN, TaskStatus.ESCALATED,
-                                TaskStatus.COMPLETED, TaskStatus.ABORTED):
+            if state.status in self._HALTED:
                 return state
-            flow = self._load(state.flow_name)
-            node = flow.node(state.current_node)
-            self._process(flow, state, node)
+            try:
+                flow = self._load(state.flow_name)
+                node = flow.node(state.current_node)
+                self._process(flow, state, node)
+            except Exception as exc:  # isolate the failure to this task
+                stream = self.store.stream(task_id)
+                self._emit(stream, task_id, EventType.ESCALATED, state.current_node,
+                           {"reason": f"engine error at {state.current_node}: {exc}"})
+                return self.store.state(task_id)
 
     def submit_decision(self, task_id: str, choice: str) -> TaskState:
         state = self.store.state(task_id)
