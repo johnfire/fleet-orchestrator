@@ -30,10 +30,10 @@ need is, that is an **open question** (see below), not a guess.
 
 ---
 
-## Required output — TWO artifacts, nothing else
+## Required output — THREE artifacts, nothing else
 
-Write both files with these **exact** names in the working directory: `spec.md` and
-`acceptance_tests.md`. Downstream nodes read them by these exact filenames.
+Write these files with these **exact** names in the working directory: `spec.md`,
+`acceptance_tests.md`, and `gates.json`. Downstream nodes read them by these exact filenames.
 
 ### 1. `spec.md`
 ```
@@ -74,12 +74,26 @@ Example shape:
 ```
 - [ ] AC1  (req: "user can reset password")  →  test: tests/auth/reset.spec.ts passes
 - [ ] AC2  (req: "no PII in logs")           →  check: grep audit passes, see cmd below
-- gate commands:
-    build:  <cmd>
-    tests:  <cmd>
-    lint:   <cmd>
-    standards: <cmd>
 ```
+
+### 3. `gates.json`
+The machine-readable gate commands the **engine** runs to gate the review — this is how
+your acceptance tests become enforced, not just described. A JSON object with **exactly**
+these four keys, each a shell command run from the repo root that exits 0 on success:
+
+```json
+{
+  "build":     "<command that fails on a broken build, or \"true\" if N/A>",
+  "tests":     "<command that runs the test suite, e.g. python -m unittest discover -s tests>",
+  "lint":      "<lint/compile command, or \"true\" if N/A>",
+  "standards": "<coding-standards check, or \"true\" if N/A>"
+}
+```
+
+Rules for `gates.json`:
+- Use only tooling the target repo actually has (prefer stdlib / no new deps).
+- These commands MUST match the acceptance tests — the `tests` command is what proves the ACs.
+- Every value is a real command or the literal `"true"`; never leave a key out.
 
 ---
 

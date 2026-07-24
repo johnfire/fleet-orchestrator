@@ -75,3 +75,41 @@ def test_failing_gate_drives_rework_to_escalation(tmp_path: Path) -> None:
     state = engine.store.state(task_id)
     assert state.status is TaskStatus.ESCALATED  # gate never passes → rework exhausts
     assert state.rework_counts["build"] == 1
+
+
+# --- planner-defined gates (workspace/gates.json) ---
+
+DYNAMIC_GATE_FLOW = """
+flow: {name: gate-test, version: 1, start: build}
+bindings:
+  builder:  {agent: mock}
+  reviewer: {agent: mock}
+nodes:
+  - id: build
+    role: builder
+    on_pass: review
+  - id: review
+    role: reviewer
+    gates: [tests]
+    on_pass: end
+    on_fail: {route: build, max_iterations: 1, on_exhausted: escalate}
+"""
+
+
+def _dynamic_project(tmp_path: Path) -> Path:
+    (tmp_path / "flows").mkdir()
+    (tmp_path / "flows" / "gate-test.yaml").write_text(DYNAMIC_GATE_FLOW, encoding="utf-8")
+    return tmp_path
+
+
+def test_planner_defined_gate_from_gates_json_runs(tmp_path: Path) -> None:
+    # the flow declares NO gate_commands; the command comes from workspace/gates.json
+    engine = Engine(_dynamic_project(tmp_path), {"mock": MockAdapter(writes_files={"gates.json": '{"tests": "true"}'})})
+    task_id = engine.start_task("gate-test", "do it")
+    assert engine.store.state(task_id).status is TaskStatus.COMPLETED
+
+
+def test_planner_defined_failing_gate_reworks(tmp_path: Path) -> None:
+    engine = Engine(_dynamic_project(tmp_path), {"mock": MockAdapter(writes_files={"gates.json": '{"tests": "false"}'})})
+    task_id = engine.start_task("gate-test", "do it")
+    assert engine.store.state(task_id).status is TaskStatus.ESCALATED  # planner's test gate fails → rework

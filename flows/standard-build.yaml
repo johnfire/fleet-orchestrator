@@ -14,14 +14,15 @@ workspace:
   task_branch: "task/{task_id}"
   remote: origin
 
-# Gate commands are project-specific, so this generic flow ships none: the review
-# node's gates are recorded as visible skips until you configure them here (or in a
-# per-repo copy of this flow). Uncomment and adapt to enforce real gating, e.g.:
+# Gate commands are project-specific. The planner emits them per task as gates.json
+# in the workspace (keys: build, tests, lint, standards), which the engine runs and
+# which take precedence over anything here. This static block is only a fallback for
+# gate names the planner didn't define; uncomment to set repo-wide defaults, e.g.:
 # gate_commands:
-#   run_build: "npm run build"
-#   run_tests: "npm test"
+#   build: "npm run build"
+#   tests: "npm test"
 #   lint: "npm run lint"
-#   coding_standards_check: "./scripts/standards-check.sh"
+#   standards: "./scripts/standards-check.sh"
 
 bindings:
   planner:   { agent: claude-desktop, model: claude-opus-4-8, effort: high }
@@ -33,7 +34,7 @@ nodes:
   - id: plan
     role: planner
     instruction: templates/plan.md
-    produces: [spec.md, acceptance_tests.md]
+    produces: [spec.md, acceptance_tests.md, gates.json]
     on_pass: approve_plan
     on_fail: { route: plan, max_iterations: 0, on_exhausted: escalate }
 
@@ -55,7 +56,7 @@ nodes:
     inputs: [spec.md, acceptance_tests.md]
     produces: [review.json]
     verdict_file: review.json
-    gates: [run_build, run_tests, lint, coding_standards_check]
+    gates: [build, tests, lint, standards]
     on_pass: decide_next
     on_fail: { route: build, carry: review_notes.md, max_iterations: 3, on_exhausted: escalate }
 

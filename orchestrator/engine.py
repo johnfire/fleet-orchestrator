@@ -233,12 +233,28 @@ class Engine:
 
     def _run_gates(self, stream: EventStream, task_id: str, flow: Flow, node: Node,
                    workspace: str | None) -> bool:
+        # Planner-defined gates (workspace/gates.json) win over the flow's static
+        # gate_commands — the ground truth the planner set is what the engine enforces.
+        task_gates = self._load_task_gates(workspace)
         all_passed = True
         for gate in node.gates:
-            outcome = run_gate(gate, flow.gate_commands.get(gate), workspace or ".")
+            command = task_gates.get(gate, flow.gate_commands.get(gate))
+            outcome = run_gate(gate, command, workspace or ".")
             self._emit(stream, task_id, EventType.GATE_RESULT, node.node_id, outcome.as_event_data())
             all_passed = all_passed and outcome.passed
         return all_passed
+
+    def _load_task_gates(self, workspace: str | None) -> dict[str, str]:
+        if not workspace:
+            return {}
+        path = Path(workspace) / "gates.json"
+        if not path.exists():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+        return {name: command for name, command in data.items() if isinstance(command, str)}
 
     def _run_action(self, stream: EventStream, state: TaskState, node: Node) -> None:
         if node.action == "git_push":
