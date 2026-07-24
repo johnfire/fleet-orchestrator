@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import subprocess
 
-from .base import AgentRequest, AgentResult
+from .base import AgentRequest, AgentResult, normalized_tokens
 
 
 class OpencodeAdapter:
@@ -43,6 +43,7 @@ class OpencodeAdapter:
         text_parts: list[str] = []
         errors: list[str] = []
         cost_usd = 0.0
+        totals = {"input": 0, "output": 0, "reasoning": 0, "cache_read": 0, "cache_write": 0}
         session_id = request.session_id
         saw_finish = False
         for event in _iter_json(stdout):
@@ -54,6 +55,13 @@ class OpencodeAdapter:
             elif kind == "step_finish":
                 saw_finish = True
                 cost_usd += float(part.get("cost", 0.0) or 0.0)
+                tokens = part.get("tokens", {})
+                cache = tokens.get("cache", {})
+                totals["input"] += int(tokens.get("input", 0) or 0)
+                totals["output"] += int(tokens.get("output", 0) or 0)
+                totals["reasoning"] += int(tokens.get("reasoning", 0) or 0)
+                totals["cache_read"] += int(cache.get("read", 0) or 0)
+                totals["cache_write"] += int(cache.get("write", 0) or 0)
             elif kind == "error":
                 message = event.get("error", {}).get("data", {}).get("message")
                 errors.append(message or "opencode error")
@@ -67,6 +75,7 @@ class OpencodeAdapter:
             session_id=session_id,
             cost_usd=round(cost_usd, 8),
             findings=findings,
+            tokens=normalized_tokens(**totals),
         )
 
 

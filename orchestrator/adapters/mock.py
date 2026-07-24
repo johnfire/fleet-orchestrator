@@ -16,10 +16,12 @@ class MockAdapter:
     name = "mock"
 
     def __init__(self, fail_roles: set[str] | None = None, cost_usd: float = 0.01,
-                 writes_files: dict[str, str] | None = None) -> None:
+                 writes_files: dict[str, str] | None = None,
+                 tokens: dict[str, int] | None = None) -> None:
         self._fail_roles = fail_roles or set()
         self._cost_usd = cost_usd
         self._writes_files = writes_files or {}
+        self._tokens = tokens or {}
         self.calls: list[AgentRequest] = []
 
     def invoke(self, request: AgentRequest) -> AgentResult:
@@ -39,4 +41,5 @@ class MockAdapter:
             cost_usd=self._cost_usd,
             artifacts={request.role: str(artifact_path)},
             findings=None if succeeded else f"mock {request.role} found problems",
+            tokens=dict(self._tokens),
         )

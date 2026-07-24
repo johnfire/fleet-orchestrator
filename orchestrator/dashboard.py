@@ -15,6 +15,7 @@ from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
+from .costs import cost_report
 from .engine import Engine
 from .store import TaskStore
 
@@ -36,12 +37,14 @@ def task_detail(store: TaskStore, task_id: str) -> dict:
     state = store.state(task_id)
     if state is None:
         return {}
+    events = list(store.stream(task_id).read())
     detail = asdict(state)
     detail["status"] = state.status.value
+    detail["cost_report"] = cost_report(events)
     detail["events"] = [
         {"seq": event.seq, "type": event.event_type.value, "node": event.node_id,
          "ts": event.timestamp, "data": event.data}
-        for event in store.stream(task_id).read()
+        for event in events
     ]
     return detail
 
@@ -169,8 +172,9 @@ td{padding:8px 10px;border-top:1px solid var(--line)}
 <h1>fleet-orchestrator</h1><p class="sub" id="sub">loading…</p>
 <h2>Gate inbox</h2><div id="inbox"></div>
 <h2>Tasks</h2><div class="card" style="padding:0;overflow:hidden"><table><thead><tr>
-<th>Task</th><th>Flow</th><th>Node</th><th>Status</th><th>Rework</th><th style="text-align:right">Cost</th>
+<th>Task</th><th>Flow</th><th>Node</th><th>Status</th><th>Rework</th><th style="text-align:right">Tokens</th><th style="text-align:right">Cost</th>
 </tr></thead><tbody id="rows"></tbody></table></div>
+<h2>Run detail</h2><div id="detail" class="empty">Click a task above to see its cost + token breakdown.</div>
 <script>
 async function post(url,body){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});load();return r}
 async function decide(id,choice){await post(`/api/tasks/${id}/decide`,{choice})}
@@ -195,11 +199,34 @@ async function load(){
      <span class="muted">${esc(t.flow_name)}</span></div>
      <div style="margin-top:6px">${msg}</div>${btns}</div>`;
  }).join(''):'<div class="empty">Nothing needs you right now.</div>';
- document.getElementById('rows').innerHTML=tasks.length?tasks.map(t=>`<tr>
+ document.getElementById('rows').innerHTML=tasks.length?tasks.map(t=>`<tr style="cursor:pointer" onclick="showDetail('${t.task_id}')">
    <td><b>${esc(t.task_id)}</b></td><td class="muted">${esc(t.flow_name)}</td>
    <td>${esc(t.current_node||'—')}</td><td class="s-${t.status}">${esc(t.status)}</td>
    <td class="muted">${esc(JSON.stringify(t.rework_counts||{}))}</td>
-   <td style="text-align:right">$${(t.total_cost_usd||0).toFixed(4)}</td></tr>`).join(''):'<tr><td colspan=6 class="empty">No tasks yet.</td></tr>';
+   <td style="text-align:right">${num(t.total_tokens||0)}</td>
+   <td style="text-align:right">$${(t.total_cost_usd||0).toFixed(4)}</td></tr>`).join(''):'<tr><td colspan=7 class="empty">No tasks yet.</td></tr>';
+}
+function num(n){return Number(n||0).toLocaleString()}
+function cell(v){return `<td style="text-align:right">${v}</td>`}
+function rows(obj,keyName){return Object.entries(obj).map(([k,b])=>{
+  const t=b.tokens||{};
+  return `<tr><td>${esc(k)}</td>${b.agent?`<td class="muted">${esc(b.agent)}</td>`:''}`
+   +cell('$'+(b.cost_usd||0).toFixed(4))+cell(num(t.input))+cell(num(t.output))+cell(num(t.reasoning))
+   +cell(num((t.cache_read||0)+(t.cache_write||0)))+cell(b.invocations)+cell((b.seconds||0).toFixed(1)+'s')+'</tr>';
+}).join('')}
+async function showDetail(id){
+ const d=document.getElementById('detail');d.className='';d.innerHTML='loading…';
+ const r=await fetch('/api/tasks/'+id);const det=await r.json();const cr=det.cost_report||{};
+ const tot=cr.total||{tokens:{}};const tt=tot.tokens||{};
+ const unmet=(cr.unmetered_models||[]);
+ d.innerHTML=`<div class="card">
+   <div class="row"><b>${esc(id)}</b><span class="muted">total: $${(tot.cost_usd||0).toFixed(4)} · ${num((tt.input||0)+(tt.output||0)+(tt.reasoning||0))} tokens · ${(tot.seconds||0).toFixed(1)}s</span></div>
+   ${unmet.length?`<div class="muted" style="margin-top:6px">note: ${unmet.map(esc).join(', ')} report $0 — subscription (unmetered), not free</div>`:''}
+   <div style="margin-top:12px;font-size:13px;color:var(--muted)">By model</div>
+   <table style="font-size:13px"><thead><tr><th style="text-align:left">model</th><th style="text-align:left">agent</th><th style="text-align:right">cost</th><th style="text-align:right">input</th><th style="text-align:right">output</th><th style="text-align:right">reason</th><th style="text-align:right">cache</th><th style="text-align:right">calls</th><th style="text-align:right">time</th></tr></thead><tbody>${rows(cr.by_model||{})}</tbody></table>
+   <div style="margin-top:12px;font-size:13px;color:var(--muted)">By node (rework shows as calls)</div>
+   <table style="font-size:13px"><thead><tr><th style="text-align:left">node</th><th style="text-align:right">cost</th><th style="text-align:right">input</th><th style="text-align:right">output</th><th style="text-align:right">reason</th><th style="text-align:right">cache</th><th style="text-align:right">calls</th><th style="text-align:right">time</th></tr></thead><tbody>${rows(cr.by_node||{})}</tbody></table>
+ </div>`;
 }
 load();setInterval(load,3000);
 </script></body></html>"""

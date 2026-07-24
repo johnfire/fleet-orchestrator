@@ -37,7 +37,18 @@ class AgentResult:
     cost_usd: float = 0.0
     artifacts: dict[str, str] = field(default_factory=dict)
     findings: str | None = None
+    tokens: dict[str, int] = field(default_factory=dict)  # normalized: input/output/reasoning/cache_read/cache_write
+    model: str | None = None  # actual model the harness used, if it self-reports (opencode runs 1-of-many)
     raw: dict = field(default_factory=dict)
+
+
+# Canonical token keys every adapter maps its provider's counts onto.
+TOKEN_KEYS = ("input", "output", "reasoning", "cache_read", "cache_write")
+
+
+def normalized_tokens(**counts: int) -> dict[str, int]:
+    """Build a token dict with all canonical keys present (missing -> 0)."""
+    return {key: int(counts.get(key, 0) or 0) for key in TOKEN_KEYS}
 
 
 class Adapter(Protocol):

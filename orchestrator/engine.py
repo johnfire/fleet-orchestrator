@@ -10,6 +10,7 @@ crash by re-reading the stream.
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from pathlib import Path
 
@@ -186,11 +187,16 @@ class Engine:
         self._emit(stream, state.task_id, EventType.AGENT_INVOKED, node.node_id, {
             "role": node.role, "agent": binding.agent, "model": binding.model, "session_id": session_id,
         })
+        started = time.monotonic()
         result = adapter.invoke(request)
+        elapsed_seconds = round(time.monotonic() - started, 2)
         artifacts = {**result.artifacts, **self._capture_produced(node, state.workspace)}
         self._emit(stream, state.task_id, EventType.AGENT_RESULT, node.node_id, {
             "succeeded": result.succeeded, "cost_usd": result.cost_usd,
             "artifacts": artifacts, "findings": result.findings,
+            "tokens": result.tokens, "elapsed_seconds": elapsed_seconds,
+            "role": node.role, "agent": binding.agent,
+            "model": result.model or binding.model,  # actual model if the harness reported it
         })
 
         gates_passed = self._run_gates(stream, state.task_id, flow, node, state.workspace)

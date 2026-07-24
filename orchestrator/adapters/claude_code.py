@@ -15,7 +15,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from .base import AgentRequest, AgentResult
+from .base import AgentRequest, AgentResult, normalized_tokens
 
 
 class ClaudeCodeAdapter:
@@ -65,11 +65,19 @@ class ClaudeCodeAdapter:
                 raw={"returncode": completed.returncode},
             )
         is_error = bool(result_event.get("is_error")) or result_event.get("subtype") != "success"
+        usage = result_event.get("usage", {})
+        tokens = normalized_tokens(
+            input=usage.get("input_tokens", 0),
+            output=usage.get("output_tokens", 0),
+            cache_read=usage.get("cache_read_input_tokens", 0),
+            cache_write=usage.get("cache_creation_input_tokens", 0),
+        )
         return AgentResult(
             succeeded=completed.returncode == 0 and not is_error,
             output=result_event.get("result", ""),
             session_id=result_event.get("session_id", request.session_id),
             cost_usd=float(result_event.get("total_cost_usd", 0.0) or 0.0),
+            tokens=tokens,
             raw=result_event,
         )
 

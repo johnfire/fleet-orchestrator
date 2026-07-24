@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import subprocess
 
-from .base import AgentRequest, AgentResult
+from .base import AgentRequest, AgentResult, normalized_tokens
 
 
 class CodexAdapter:
@@ -57,12 +57,20 @@ class CodexAdapter:
                 usage = event.get("usage", {})
         output = "".join(text_parts).strip()
         succeeded = returncode == 0 and saw_turn_complete
+        tokens = normalized_tokens(
+            input=usage.get("input_tokens", 0),
+            output=usage.get("output_tokens", 0),
+            reasoning=usage.get("reasoning_output_tokens", 0),
+            cache_read=usage.get("cached_input_tokens", 0),
+            cache_write=usage.get("cache_write_input_tokens", 0),
+        )
         return AgentResult(
             succeeded=succeeded,
             output=output,
             session_id=session_id,
             cost_usd=0.0,
             findings=None if succeeded else (output or "codex exec failed"),
+            tokens=tokens,
             raw={"usage": usage},
         )
 

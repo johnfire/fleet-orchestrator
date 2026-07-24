@@ -16,7 +16,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from .base import AgentRequest, AgentResult
+from .base import AgentRequest, AgentResult, normalized_tokens
 
 
 class HermesAdapter:
@@ -49,12 +49,21 @@ class HermesAdapter:
         failed = bool(usage.get("failed"))
         completed_flag = usage.get("completed")
         succeeded = returncode == 0 and not failed and completed_flag is not False
+        tokens = normalized_tokens(
+            input=usage.get("input_tokens", 0),
+            output=usage.get("output_tokens", 0),
+            reasoning=usage.get("reasoning_tokens", 0),
+            cache_read=usage.get("cache_read_tokens", 0),
+            cache_write=usage.get("cache_write_tokens", 0),
+        )
         return AgentResult(
             succeeded=succeeded,
             output=output,
             session_id=usage.get("session_id") or request.session_id,
             cost_usd=float(usage.get("estimated_cost_usd") or 0.0),
             findings=None if succeeded else (output or "hermes run failed"),
+            tokens=tokens,
+            model=usage.get("model"),
             raw={"usage": usage},
         )
 

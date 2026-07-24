@@ -38,6 +38,7 @@ class TaskState:
     task_branch: str | None = None
     rework_counts: dict[str, int] = field(default_factory=dict)
     total_cost_usd: float = 0.0
+    total_tokens: int = 0
     open_gate: dict[str, Any] | None = None
     artifacts: dict[str, str] = field(default_factory=dict)
     binding_overrides: dict[str, dict] = field(default_factory=dict)
@@ -69,7 +70,10 @@ def _apply(state: TaskState | None, event: Event) -> TaskState:
         cost = float(event.data.get("cost_usd", 0.0) or 0.0)
         artifacts = dict(state.artifacts)
         artifacts.update(event.data.get("artifacts", {}))
-        return replace(state, total_cost_usd=round(state.total_cost_usd + cost, 8), artifacts=artifacts)
+        tokens = event.data.get("tokens", {}) or {}
+        generated = sum(int(tokens.get(key, 0) or 0) for key in ("input", "output", "reasoning"))
+        return replace(state, total_cost_usd=round(state.total_cost_usd + cost, 8),
+                       total_tokens=state.total_tokens + generated, artifacts=artifacts)
     if event.event_type is EventType.REWORK_ROUTED:
         if event.data.get("exhausted"):
             return state  # the cap was hit; this routes to on_exhausted, not another attempt
