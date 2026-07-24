@@ -42,8 +42,13 @@ the flow's `gate_commands` map, in the task workspace, and actually gate progres
 (a failing gate drives the rework loop). Unconfigured gate names are visible, logged
 skips — enforcement is opt-in per repo.
 
-Not built yet: builder/reviewer/pentester templates, real git-worktree isolation +
-push action, the dashboard, the ntfy back-channel. See `flows/standard-build.yaml`.
+The dashboard is a dependency-free read model over the event streams:
+`python -m orchestrator.cli dashboard` serves a gate inbox + task table on
+`http://127.0.0.1:8787` and forwards gate decisions to the engine.
+
+Not built yet: escalation-action wiring (retry/reassign/take-over as decisions),
+the ntfy actionable back-channel, and a live end-to-end run against the real
+agents. See `flows/standard-build.yaml`.
 
 ## Layout
 
@@ -58,8 +63,11 @@ orchestrator/
     base.py            Adapter protocol + AgentResult
     mock.py            deterministic adapter for tests
     claude_code.py     real `claude -p` adapter (stream-json)
-  cli.py               start / advance / decide a task
-templates/             instruction templates fed to agents (plan.md ...)
+  gates.py             objective gate execution (build/test/lint/standards)
+  workspace.py         per-task git-worktree isolation + push
+  dashboard.py         read-model dashboard (gate inbox + task table)
+  cli.py               start / decide / list / dashboard
+templates/             instruction templates fed to agents (plan/build/review/pentest)
 runs/                  per-task event streams + workspaces (gitignored)
 tests/
 ```

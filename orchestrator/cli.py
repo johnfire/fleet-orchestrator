@@ -60,6 +60,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("list", help="list known tasks")
 
+    dash = sub.add_parser("dashboard", help="serve the read-model dashboard")
+    dash.add_argument("--port", type=int, default=8787)
+
     args = parser.parse_args(argv)
     engine = build_engine()
 
@@ -74,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "list":
         for task_id in engine.store.list_task_ids():
             _print_state(engine, task_id)
+    elif args.command == "dashboard":
+        from .dashboard import serve
+        serve(engine, port=args.port)
     return 0
 
 
