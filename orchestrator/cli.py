@@ -5,8 +5,8 @@
     python -m orchestrator.cli decide task-1a2b3c4d approve
     python -m orchestrator.cli list
 
-Only the Claude Code adapter is wired so far, bound to the `claude-desktop` agent.
-Nodes whose agent has no adapter escalate cleanly rather than crashing.
+All four adapters are wired via the registry (claude-desktop, opencode, codex,
+hermes). Nodes whose agent has no adapter escalate cleanly rather than crashing.
 """
 
 from __future__ import annotations
@@ -15,15 +15,14 @@ import argparse
 import json
 from pathlib import Path
 
-from .adapters.claude_code import ClaudeCodeAdapter
+from .adapters.registry import default_adapters
 from .engine import Engine
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def build_engine() -> Engine:
-    adapters = {"claude-desktop": ClaudeCodeAdapter()}
-    return Engine(PROJECT_ROOT, adapters)
+    return Engine(PROJECT_ROOT, default_adapters())
 
 
 def _print_state(engine: Engine, task_id: str) -> None:

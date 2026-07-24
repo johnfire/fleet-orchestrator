@@ -63,7 +63,7 @@ def _apply(state: TaskState | None, event: Event) -> TaskState:
         cost = float(event.data.get("cost_usd", 0.0) or 0.0)
         artifacts = dict(state.artifacts)
         artifacts.update(event.data.get("artifacts", {}))
-        return replace(state, total_cost_usd=round(state.total_cost_usd + cost, 6), artifacts=artifacts)
+        return replace(state, total_cost_usd=round(state.total_cost_usd + cost, 8), artifacts=artifacts)
     if event.event_type is EventType.REWORK_ROUTED:
         if event.data.get("exhausted"):
             return state  # the cap was hit; this routes to on_exhausted, not another attempt
