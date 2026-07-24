@@ -9,6 +9,7 @@ crash by re-reading the stream.
 
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 
@@ -120,17 +121,19 @@ class Engine:
             "role": node.role, "agent": binding.agent, "model": binding.model, "session_id": session_id,
         })
         result = adapter.invoke(request)
+        artifacts = {**result.artifacts, **self._capture_produced(node, state.workspace)}
         self._emit(stream, state.task_id, EventType.AGENT_RESULT, node.node_id, {
             "succeeded": result.succeeded, "cost_usd": result.cost_usd,
-            "artifacts": result.artifacts, "findings": result.findings,
+            "artifacts": artifacts, "findings": result.findings,
         })
 
         gates_passed = self._run_gates(stream, state.task_id, flow, node, state.workspace)
-        if result.succeeded and gates_passed:
+        verdict_ok, verdict_findings = self._check_verdict(node, state.workspace)
+        if result.succeeded and gates_passed and verdict_ok:
             self._emit(stream, state.task_id, EventType.NODE_PASSED, node.node_id)
             self._goto(stream, state.task_id, node, node.on_pass or _TERMINAL)
         else:
-            reason = result.findings or "gate failed"
+            reason = verdict_findings or result.findings or "gate failed"
             self._emit(stream, state.task_id, EventType.NODE_FAILED, node.node_id, {"reason": reason})
             self._route_fail(stream, state, node, reason)
 
@@ -146,10 +149,21 @@ class Engine:
             })
             self._goto(stream, state.task_id, node, on_fail.on_exhausted)
             return
+        carried = self._write_carry(on_fail, state, reason, attempts + 1)
         self._emit(stream, state.task_id, EventType.REWORK_ROUTED, node.node_id, {
-            "route": on_fail.route, "carry": on_fail.carry, "reason": reason, "attempts": attempts + 1,
+            "route": on_fail.route, "carry": on_fail.carry, "reason": reason,
+            "attempts": attempts + 1, "artifacts": carried,
         })
         self._enter(stream, state.task_id, on_fail.route)
+
+    def _write_carry(self, on_fail: OnFail, state: TaskState, reason: str, attempt: int) -> dict[str, str]:
+        """Persist findings to the carry file so the next builder pass receives them."""
+        if not (on_fail.carry and state.workspace):
+            return {}
+        carry_path = Path(state.workspace) / on_fail.carry
+        carry_path.write_text(
+            f"# Rework findings (pass {attempt})\n\n{reason}\n", encoding="utf-8")
+        return {on_fail.carry: str(carry_path)}
 
     def _run_gates(self, stream: EventStream, task_id: str, flow: Flow, node: Node,
                    workspace: str | None) -> bool:
@@ -214,11 +228,53 @@ class Engine:
         ))
 
     def _build_instruction(self, node: Node, state: TaskState) -> str:
-        template = self._load_template(node.instruction)
-        return f"{template}\n\n## Task request\n{state.request}\n"
+        parts = [self._load_template(node.instruction), f"\n\n## Task request\n{state.request}\n"]
+        for name in node.inputs:
+            content = self._read_artifact(node, state, name)
+            if content is not None:
+                parts.append(f"\n\n## Input: {name}\n{content}\n")
+        return "".join(parts)
 
     def _gather_inputs(self, node: Node, state: TaskState) -> dict[str, str]:
         return {name: state.artifacts[name] for name in node.inputs if name in state.artifacts}
+
+    def _capture_produced(self, node: Node, workspace: str | None) -> dict[str, str]:
+        if not workspace:
+            return {}
+        produced: dict[str, str] = {}
+        for filename in node.produces:
+            candidate = Path(workspace) / filename
+            if candidate.exists():
+                produced[filename] = str(candidate)
+        return produced
+
+    def _check_verdict(self, node: Node, workspace: str | None) -> tuple[bool, str | None]:
+        if not node.verdict_file:
+            return True, None
+        if not workspace:
+            return False, f"no workspace to read verdict {node.verdict_file}"
+        path = Path(workspace) / node.verdict_file
+        if not path.exists():
+            return False, f"reviewer emitted no verdict at {node.verdict_file}"
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return False, f"unparseable verdict at {node.verdict_file}"
+        if str(data.get("verdict", "")).lower() == "pass":
+            return True, None
+        return False, data.get("findings") or f"verdict={data.get('verdict')}"
+
+    def _read_artifact(self, node: Node, state: TaskState, name: str) -> str | None:
+        path = state.artifacts.get(name)
+        if path is None and state.workspace:
+            candidate = Path(state.workspace) / name
+            path = str(candidate) if candidate.exists() else None
+        if path and Path(path).exists():
+            try:
+                return Path(path).read_text(encoding="utf-8")
+            except OSError:
+                return None
+        return None
 
     def _load_template(self, instruction: str | None) -> str:
         if not instruction:

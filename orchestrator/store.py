@@ -74,7 +74,9 @@ def _apply(state: TaskState | None, event: Event) -> TaskState:
         target = event.data["route"]
         counts = dict(state.rework_counts)
         counts[target] = counts.get(target, 0) + 1
-        return replace(state, rework_counts=counts)
+        artifacts = dict(state.artifacts)
+        artifacts.update(event.data.get("artifacts", {}))
+        return replace(state, rework_counts=counts, artifacts=artifacts)
     if event.event_type is EventType.HUMAN_GATE_OPENED:
         return replace(state, status=TaskStatus.BLOCKED_ON_HUMAN, open_gate=event.data)
     if event.event_type is EventType.HUMAN_DECISION:

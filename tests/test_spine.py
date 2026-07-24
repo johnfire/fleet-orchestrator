@@ -19,6 +19,10 @@ from orchestrator.store import TaskStatus
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 AGENTS = ("claude-desktop", "opencode", "codex", "hermes")
+PASS_VERDICTS = {
+    "review.json": '{"verdict":"pass","findings":""}',
+    "pentest.json": '{"verdict":"pass","findings":""}',
+}
 
 
 @pytest.fixture
@@ -28,8 +32,10 @@ def project(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _engine(project: Path, fail_roles: set[str] | None = None) -> tuple[Engine, MockAdapter]:
-    adapter = MockAdapter(fail_roles=fail_roles)
+def _engine(project: Path, fail_roles: set[str] | None = None,
+            writes_files: dict[str, str] | None = None) -> tuple[Engine, MockAdapter]:
+    adapter = MockAdapter(fail_roles=fail_roles,
+                          writes_files=PASS_VERDICTS if writes_files is None else writes_files)
     return Engine(project, {name: adapter for name in AGENTS}), adapter
 
 
@@ -81,6 +87,23 @@ def test_review_failure_reworks_then_escalates(project: Path) -> None:
     assert builder_runs == 4 and reviewer_runs == 4  # initial + 3 reworks
     rework_events = [t for t in _event_types(engine, task_id) if t is EventType.REWORK_ROUTED]
     assert len(rework_events) == 4  # 3 routed + 1 exhausted
+
+
+def test_reviewer_verdict_fail_reworks_and_carries_findings(project: Path) -> None:
+    fail_verdict = {
+        "review.json": '{"verdict":"fail","findings":"missing acceptance test AC3"}',
+        "pentest.json": '{"verdict":"pass","findings":""}',
+    }
+    engine, adapter = _engine(project, writes_files=fail_verdict)
+    task_id = engine.start_task("standard-build", "add a feature")
+    engine.submit_decision(task_id, "approve")
+
+    state = engine.store.state(task_id)
+    assert state.status is TaskStatus.ESCALATED  # agent succeeds, but verdict fails every pass
+    assert state.rework_counts["build"] == 3
+    # The reviewer's findings were carried to the builder as an input artifact.
+    assert "review_notes.md" in state.artifacts
+    assert "missing acceptance test AC3" in Path(state.artifacts["review_notes.md"]).read_text()
 
 
 def test_fresh_session_per_invocation(project: Path) -> None:

@@ -33,7 +33,7 @@ nodes:
   - id: plan
     role: planner
     instruction: templates/plan.md
-    produces: [spec, acceptance_tests]
+    produces: [spec.md, acceptance_tests.md]
     on_pass: approve_plan
     on_fail: { route: plan, max_iterations: 0, on_exhausted: escalate }
 
@@ -45,16 +45,19 @@ nodes:
   - id: build
     role: builder
     instruction: templates/build.md
-    inputs: [spec, acceptance_tests, review_notes]
+    inputs: [spec.md, acceptance_tests.md, review_notes.md]
     on_pass: review
     on_fail: { route: build, max_iterations: 3, on_exhausted: escalate }
 
   - id: review
     role: reviewer
     instruction: templates/review.md
+    inputs: [spec.md, acceptance_tests.md]
+    produces: [review.json]
+    verdict_file: review.json
     gates: [run_build, run_tests, lint, coding_standards_check]
     on_pass: decide_next
-    on_fail: { route: build, carry: review_notes, max_iterations: 3, on_exhausted: escalate }
+    on_fail: { route: build, carry: review_notes.md, max_iterations: 3, on_exhausted: escalate }
 
   - id: decide_next
     type: human_gate
@@ -65,8 +68,11 @@ nodes:
   - id: pentest
     role: pentester
     instruction: templates/pentest.md
+    inputs: [spec.md]
+    produces: [pentest.json]
+    verdict_file: pentest.json
     on_pass: push
-    on_fail: { route: build, carry: review_notes, max_iterations: 2, on_exhausted: escalate }
+    on_fail: { route: build, carry: review_notes.md, max_iterations: 2, on_exhausted: escalate }
 
   - id: push
     type: action

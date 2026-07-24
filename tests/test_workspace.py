@@ -73,7 +73,11 @@ def test_commit_and_push_reach_remote(target_repo: Path, tmp_path: Path) -> None
 
 
 def test_full_flow_pushes_task_branch_to_remote(project: Path, target_repo: Path) -> None:
-    adapter = MockAdapter()
+    verdicts = {
+        "review.json": '{"verdict":"pass","findings":""}',
+        "pentest.json": '{"verdict":"pass","findings":""}',
+    }
+    adapter = MockAdapter(writes_files=verdicts)
     engine = Engine(project, {name: adapter for name in AGENTS})
     task_id = engine.start_task("standard-build", "add a feature", target_repo=str(target_repo))
 

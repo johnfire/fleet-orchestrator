@@ -40,6 +40,7 @@ class Node:
     inputs: tuple[str, ...] = ()
     produces: tuple[str, ...] = ()
     gates: tuple[str, ...] = ()
+    verdict_file: str | None = None
     action: str | None = None
     prompt: str | None = None
     options: dict[str, str] = field(default_factory=dict)
@@ -122,6 +123,7 @@ def _parse_node(entry: dict[str, Any]) -> Node:
         inputs=tuple(entry.get("inputs", [])),
         produces=tuple(entry.get("produces", [])),
         gates=tuple(entry.get("gates", [])),
+        verdict_file=entry.get("verdict_file"),
         action=entry.get("run"),
         prompt=entry.get("prompt"),
         options=dict(entry.get("options", {})),
