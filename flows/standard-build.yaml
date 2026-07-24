@@ -25,8 +25,8 @@ workspace:
 
 bindings:
   planner:   { agent: claude-desktop, model: claude-opus-4-8, effort: high }
-  builder:   { agent: opencode,       model: openrouter/deepseek-v4 }
-  reviewer:  { agent: codex,          model: gpt-5.6 }
+  builder:   { agent: opencode,       model: deepseek/deepseek-chat }
+  reviewer:  { agent: codex,          model: gpt-5.6-terra }
   pentester: { agent: hermes,         model: deepseek-v4 }
 
 nodes:

@@ -36,30 +36,37 @@ class OpencodeAdapter:
             command, capture_output=True, text=True,
             stdin=subprocess.DEVNULL, timeout=self._timeout_seconds,
         )
-        return self._parse(request, completed.stdout, completed.returncode)
+        return self._parse(request, completed.stdout, completed.returncode, completed.stderr)
 
     @classmethod
-    def _parse(cls, request: AgentRequest, stdout: str, returncode: int) -> AgentResult:
+    def _parse(cls, request: AgentRequest, stdout: str, returncode: int, stderr: str = "") -> AgentResult:
         text_parts: list[str] = []
+        errors: list[str] = []
         cost_usd = 0.0
         session_id = request.session_id
         saw_finish = False
         for event in _iter_json(stdout):
             session_id = event.get("sessionID", session_id)
             part = event.get("part", {})
-            if event.get("type") == "text":
+            kind = event.get("type")
+            if kind == "text":
                 text_parts.append(part.get("text", ""))
-            elif event.get("type") == "step_finish":
+            elif kind == "step_finish":
                 saw_finish = True
                 cost_usd += float(part.get("cost", 0.0) or 0.0)
+            elif kind == "error":
+                message = event.get("error", {}).get("data", {}).get("message")
+                errors.append(message or "opencode error")
         output = "".join(text_parts).strip()
-        succeeded = returncode == 0 and saw_finish
+        succeeded = returncode == 0 and saw_finish and not errors
+        # Surface the real error so failures are diagnosable, not "run failed".
+        findings = None if succeeded else ("; ".join(errors) or output or stderr.strip() or "opencode run failed")
         return AgentResult(
             succeeded=succeeded,
             output=output,
             session_id=session_id,
             cost_usd=round(cost_usd, 8),
-            findings=None if succeeded else (output or "opencode run failed"),
+            findings=findings,
         )
 
 

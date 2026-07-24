@@ -32,6 +32,9 @@ need is, that is an **open question** (see below), not a guess.
 
 ## Required output — TWO artifacts, nothing else
 
+Write both files with these **exact** names in the working directory: `spec.md` and
+`acceptance_tests.md`. Downstream nodes read them by these exact filenames.
+
 ### 1. `spec.md`
 ```
 # <feature name>
@@ -58,7 +61,7 @@ need is, that is an **open question** (see below), not a guess.
 <what could go wrong, what's fragile, what to watch>
 ```
 
-### 2. `acceptance_tests`
+### 2. `acceptance_tests.md`
 The **ground truth** the builder must satisfy and the reviewer grades against. Every
 requirement in `spec.md` maps to at least one concrete, machine-checkable criterion.
 

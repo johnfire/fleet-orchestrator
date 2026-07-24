@@ -57,6 +57,15 @@ def test_opencode_failure_surfaces_output_as_findings(tmp_path: Path) -> None:
     assert result.findings  # never None on failure, so rework has something to carry
 
 
+def test_opencode_surfaces_error_event_message(tmp_path: Path) -> None:
+    # real shape captured live from an unauthed model (openrouter/deepseek-v4)
+    error_stdout = ('{"type":"error","sessionID":"ses_1","error":{"name":"UnknownError",'
+                    '"data":{"message":"Unexpected server error. Check server logs."}}}')
+    result = OpencodeAdapter._parse(_request(tmp_path), error_stdout, returncode=1)
+    assert result.succeeded is False
+    assert "Unexpected server error" in result.findings  # real error, not "run failed"
+
+
 def test_codex_parser(tmp_path: Path) -> None:
     result = CodexAdapter._parse(_request(tmp_path, "reviewer"), CODEX_STDOUT, returncode=0)
     assert result.succeeded is True
