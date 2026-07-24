@@ -19,6 +19,7 @@ class TaskStatus(str, Enum):
     RUNNING = "running"
     BLOCKED_ON_HUMAN = "blocked_on_human"
     ESCALATED = "escalated"
+    HANDED_OVER = "handed_over"
     COMPLETED = "completed"
     ABORTED = "aborted"
 
@@ -39,6 +40,7 @@ class TaskState:
     total_cost_usd: float = 0.0
     open_gate: dict[str, Any] | None = None
     artifacts: dict[str, str] = field(default_factory=dict)
+    binding_overrides: dict[str, dict] = field(default_factory=dict)
 
 
 def fold(events: list[Event]) -> TaskState | None:
@@ -83,6 +85,16 @@ def _apply(state: TaskState | None, event: Event) -> TaskState:
         return replace(state, open_gate=None)
     if event.event_type is EventType.ESCALATED:
         return replace(state, status=TaskStatus.ESCALATED, open_gate=event.data)
+    if event.event_type is EventType.ESCALATION_RESOLVED:
+        action = event.data.get("action")
+        if action == "take_over":
+            return replace(state, status=TaskStatus.HANDED_OVER, open_gate=None)
+        if action in ("retry", "reassign"):
+            overrides = dict(state.binding_overrides)
+            if action == "reassign":
+                overrides[event.data["role"]] = event.data["override"]
+            return replace(state, rework_counts={}, binding_overrides=overrides, open_gate=None)
+        return state
     if event.event_type is EventType.TASK_COMPLETED:
         return replace(state, status=TaskStatus.COMPLETED, current_node=None, open_gate=None)
     if event.event_type is EventType.TASK_ABORTED:

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .adapters.base import Adapter, AgentRequest
 from .events import Event, EventStream, EventType
-from .flow import Flow, Node, NodeType, OnFail, load_flow
+from .flow import Binding, Flow, Node, NodeType, OnFail, load_flow
 from .gates import run_gate
 from .store import TaskState, TaskStatus, TaskStore
 from .workspace import commit_all, create_worktree, push_branch
@@ -88,6 +88,34 @@ class Engine:
         self._goto(stream, task_id, node, target)
         return self.run(task_id)
 
+    def resolve_escalation(self, task_id: str, action: str, agent: str | None = None,
+                           model: str | None = None, role: str | None = None) -> TaskState:
+        """Human resolution of an escalation: retry, reassign, take_over, or abort."""
+        state = self.store.state(task_id)
+        assert state is not None and state.status is TaskStatus.ESCALATED, "task is not escalated"
+        stream = self.store.stream(task_id)
+        node_id = state.current_node
+        data: dict = {"action": action}
+        if action == "reassign":
+            role = role or (self._load(state.flow_name).node(node_id).role if node_id else None)
+            if not (role and agent):
+                raise ValueError("reassign needs a role and an agent")
+            override = {"agent": agent}
+            if model:
+                override["model"] = model
+            data.update({"role": role, "override": override})
+        elif action not in ("retry", "take_over", "abort"):
+            raise ValueError(f"unknown escalation action '{action}'")
+
+        self._emit(stream, task_id, EventType.ESCALATION_RESOLVED, node_id, data)
+        if action == "abort":
+            self._emit(stream, task_id, EventType.TASK_ABORTED, node_id)
+            return self.store.state(task_id)
+        if action == "take_over":
+            return self.store.state(task_id)
+        self._enter(stream, task_id, node_id)  # retry / reassign: re-run the failed node
+        return self.run(task_id)
+
     def _process(self, flow: Flow, state: TaskState, node: Node) -> None:
         stream = self.store.stream(state.task_id)
         if node.node_type is NodeType.HUMAN_GATE:
@@ -98,7 +126,7 @@ class Engine:
             self._run_agent(flow, state, node, stream)
 
     def _run_agent(self, flow: Flow, state: TaskState, node: Node, stream: EventStream) -> None:
-        binding = flow.bindings.get(node.role)
+        binding = self._effective_binding(flow, state, node.role)
         if binding is None:
             self._escalate(stream, state.task_id, node, f"no binding for role '{node.role}'")
             return
@@ -234,6 +262,17 @@ class Engine:
             if content is not None:
                 parts.append(f"\n\n## Input: {name}\n{content}\n")
         return "".join(parts)
+
+    def _effective_binding(self, flow: Flow, state: TaskState, role: str | None) -> Binding | None:
+        base = flow.bindings.get(role)
+        override = state.binding_overrides.get(role)
+        if not override:
+            return base
+        return Binding(
+            agent=override["agent"],
+            model=override.get("model", base.model if base else None),
+            effort=override.get("effort", base.effort if base else None),
+        )
 
     def _gather_inputs(self, node: Node, state: TaskState) -> dict[str, str]:
         return {name: state.artifacts[name] for name in node.inputs if name in state.artifacts}

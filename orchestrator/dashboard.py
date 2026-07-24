@@ -65,14 +65,20 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        if not (path.startswith("/api/tasks/") and path.endswith("/decide")):
+        parts = path.split("/")
+        if not (path.startswith("/api/tasks/") and parts[-1] in ("decide", "resolve")):
             self._send(404, "not found")
             return
-        task_id = path.split("/")[3]
+        task_id = parts[3]
         length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(length) or b"{}")
         try:
-            self.engine.submit_decision(task_id, body["choice"])
+            if parts[-1] == "decide":
+                self.engine.submit_decision(task_id, body["choice"])
+            else:
+                self.engine.resolve_escalation(
+                    task_id, body["action"], agent=body.get("agent"),
+                    model=body.get("model"), role=body.get("role"))
             self._send_json(200, task_detail(self.engine.store, task_id))
         except (KeyError, ValueError, AssertionError) as exc:
             self._send_json(400, {"error": str(exc)})
@@ -123,7 +129,12 @@ td{padding:8px 10px;border-top:1px solid var(--line)}
 <th>Task</th><th>Flow</th><th>Node</th><th>Status</th><th>Rework</th><th style="text-align:right">Cost</th>
 </tr></thead><tbody id="rows"></tbody></table></div>
 <script>
-async function decide(id,choice){await fetch(`/api/tasks/${id}/decide`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({choice})});load()}
+async function post(url,body){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});load();return r}
+async function decide(id,choice){await post(`/api/tasks/${id}/decide`,{choice})}
+async function resolve(id,action){
+ let body={action};
+ if(action==='reassign'){const role=prompt('Reassign which role?');const agent=prompt('To which agent?');if(!role||!agent)return;body={action,role,agent}}
+ const r=await post(`/api/tasks/${id}/resolve`,body);if(!r.ok){const e=await r.json();alert(e.error||'failed')}}
 function esc(s){return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
 async function load(){
  const r=await fetch('/api/tasks');const {tasks}=await r.json();
@@ -131,8 +142,9 @@ async function load(){
  document.getElementById('sub').textContent=`${tasks.length} tasks · ${need.length} need you`;
  document.getElementById('inbox').innerHTML=need.length?need.map(t=>{
    const g=t.open_gate||{};const danger=t.status==='escalated';
-   const opts=g.options?Object.keys(g.options):[];
-   const btns=opts.map(c=>`<button onclick="decide('${t.task_id}','${c}')">${esc(c)}</button>`).join('');
+   let btns;
+   if(danger){btns=['retry','reassign','take_over','abort'].map(a=>`<button onclick="resolve('${t.task_id}','${a}')">${esc(a.replace('_',' '))}</button>`).join('')}
+   else{const opts=g.options?Object.keys(g.options):[];btns=opts.map(c=>`<button onclick="decide('${t.task_id}','${c}')">${esc(c)}</button>`).join('')}
    const msg=danger?esc(g.reason||'escalated — needs attention'):esc(g.prompt||'');
    return `<div class="card ${danger?'gate-danger':'gate-warn'}"><div class="row">
      <div><span class="pill ${danger?'pd':'pw'}">${danger?'escalation':'gate'}</span> <b>${esc(t.task_id)}</b> · ${esc(t.current_node||'')}</div>

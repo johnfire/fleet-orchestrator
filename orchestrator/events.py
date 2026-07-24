@@ -28,6 +28,7 @@ class EventType(str, Enum):
     HUMAN_GATE_OPENED = "human_gate_opened"
     HUMAN_DECISION = "human_decision"
     ESCALATED = "escalated"
+    ESCALATION_RESOLVED = "escalation_resolved"
     ACTION_RUN = "action_run"
     TASK_COMPLETED = "task_completed"
     TASK_ABORTED = "task_aborted"
