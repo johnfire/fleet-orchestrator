@@ -82,6 +82,13 @@ def main(argv: list[str] | None = None) -> int:
     dash = sub.add_parser("dashboard", help="serve the read-model dashboard")
     dash.add_argument("--port", type=int, default=8787)
 
+    demo = sub.add_parser("demo", help="run a flow end-to-end with mock agents (no spend)")
+    demo.add_argument("flow", nargs="?", default="standard-build")
+
+    clean = sub.add_parser("cleanup", help="remove finished tasks' worktrees")
+    clean.add_argument("task_id", nargs="?")
+    clean.add_argument("--all", action="store_true", help="sweep all completed/aborted tasks")
+
     args = parser.parse_args(argv)
     engine = build_engine()
 
@@ -99,6 +106,20 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "dashboard":
         from .dashboard import serve
         serve(engine, port=args.port)
+    elif args.command == "demo":
+        from .demo import run_demo
+        demo_engine, task_id = run_demo(PROJECT_ROOT, args.flow)
+        for event in demo_engine.store.stream(task_id).read():
+            node = f"[{event.node_id}]" if event.node_id else ""
+            print(f"  {event.seq:>2} {event.event_type.value:<20} {node}")
+        _print_state(demo_engine, task_id)
+    elif args.command == "cleanup":
+        if args.all:
+            print("cleaned:", engine.cleanup_finished())
+        elif args.task_id:
+            _print_state(engine, engine.cleanup_task(args.task_id).task_id)
+        else:
+            print("give a task_id or --all")
     return 0
 
 

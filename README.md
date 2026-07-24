@@ -31,6 +31,17 @@ Principles:
   `max_iterations → escalate`.
 - **Per-task git-worktree isolation** so concurrent tasks can't stomp shared checkouts.
 
+## Try it (no spend)
+
+Watch the whole pipeline run end to end with mock agents — no real model, no cost:
+
+```
+python -m orchestrator.cli demo
+```
+
+It prints the event trace (plan → gate → build → review → gate → pentest → push).
+`cleanup <task_id>` / `cleanup --all` remove finished tasks' worktrees.
+
 ## Status
 
 Increment 1 — the spine — is in place: event stream, task store, flow engine (agent
@@ -70,7 +81,9 @@ orchestrator/
   gates.py             objective gate execution (build/test/lint/standards)
   workspace.py         per-task git-worktree isolation + push
   dashboard.py         read-model dashboard (gate inbox + task table)
-  cli.py               start / decide / list / dashboard
+  notify.py            ntfy back-channel (gate/escalation alerts)
+  demo.py              no-spend end-to-end run with mock agents
+  cli.py               start / decide / list / dashboard / demo / cleanup
 templates/             instruction templates fed to agents (plan/build/review/pentest)
 runs/                  per-task event streams + workspaces (gitignored)
 tests/

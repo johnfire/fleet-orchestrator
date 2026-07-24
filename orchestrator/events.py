@@ -30,6 +30,7 @@ class EventType(str, Enum):
     ESCALATED = "escalated"
     ESCALATION_RESOLVED = "escalation_resolved"
     ACTION_RUN = "action_run"
+    WORKSPACE_CLEANED = "workspace_cleaned"
     TASK_COMPLETED = "task_completed"
     TASK_ABORTED = "task_aborted"
 

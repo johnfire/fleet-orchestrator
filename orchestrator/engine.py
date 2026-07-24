@@ -19,7 +19,7 @@ from .flow import Binding, Flow, Node, NodeType, OnFail, load_flow
 from .gates import run_gate
 from .notify import NullNotifier, Notifier
 from .store import TaskState, TaskStatus, TaskStore
-from .workspace import commit_all, create_worktree, push_branch
+from .workspace import commit_all, create_worktree, push_branch, remove_worktree
 
 _TERMINAL = "end"
 _ESCALATE = "escalate"
@@ -131,6 +131,28 @@ class Engine:
             return self.store.state(task_id)
         self._enter(stream, task_id, node_id)  # retry / reassign: re-run the failed node
         return self.run(task_id)
+
+    def cleanup_task(self, task_id: str) -> TaskState:
+        """Remove a finished task's worktree. Only terminal tasks; the event trail stays."""
+        state = self.store.state(task_id)
+        assert state is not None, f"unknown task {task_id}"
+        if state.status not in (TaskStatus.COMPLETED, TaskStatus.ABORTED):
+            return state
+        if state.target_repo and state.workspace and Path(state.workspace).exists():
+            outcome = remove_worktree(state.target_repo, Path(state.workspace))
+            self._emit(self.store.stream(task_id), task_id, EventType.WORKSPACE_CLEANED, None,
+                       {"ok": outcome.ok, "output": outcome.output})
+        return self.store.state(task_id)
+
+    def cleanup_finished(self) -> list[str]:
+        """Sweep worktrees of all completed/aborted tasks. Returns the ids cleaned."""
+        cleaned = []
+        for task_id in self.store.list_task_ids():
+            state = self.store.state(task_id)
+            if state and state.status in (TaskStatus.COMPLETED, TaskStatus.ABORTED):
+                self.cleanup_task(task_id)
+                cleaned.append(task_id)
+        return cleaned
 
     def _process(self, flow: Flow, state: TaskState, node: Node) -> None:
         stream = self.store.stream(state.task_id)

@@ -15,8 +15,14 @@ import pytest
 
 from orchestrator.adapters.mock import MockAdapter
 from orchestrator.engine import Engine
+from orchestrator.events import EventType
 from orchestrator.store import TaskStatus
 from orchestrator.workspace import commit_all, create_worktree, push_branch
+
+VERDICTS = {
+    "review.json": '{"verdict":"pass","findings":""}',
+    "pentest.json": '{"verdict":"pass","findings":""}',
+}
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 AGENTS = ("claude-desktop", "opencode", "codex", "hermes")
@@ -73,11 +79,7 @@ def test_commit_and_push_reach_remote(target_repo: Path, tmp_path: Path) -> None
 
 
 def test_full_flow_pushes_task_branch_to_remote(project: Path, target_repo: Path) -> None:
-    verdicts = {
-        "review.json": '{"verdict":"pass","findings":""}',
-        "pentest.json": '{"verdict":"pass","findings":""}',
-    }
-    adapter = MockAdapter(writes_files=verdicts)
+    adapter = MockAdapter(writes_files=VERDICTS)
     engine = Engine(project, {name: adapter for name in AGENTS})
     task_id = engine.start_task("standard-build", "add a feature", target_repo=str(target_repo))
 
@@ -88,3 +90,27 @@ def test_full_flow_pushes_task_branch_to_remote(project: Path, target_repo: Path
     assert state.status is TaskStatus.COMPLETED
     assert state.task_branch == f"task/{task_id}"
     assert state.task_branch in _branches_in_remote(target_repo)
+
+
+def test_cleanup_removes_worktree_after_completion(project: Path, target_repo: Path) -> None:
+    adapter = MockAdapter(writes_files=VERDICTS)
+    engine = Engine(project, {name: adapter for name in AGENTS})
+    task_id = engine.start_task("standard-build", "x", target_repo=str(target_repo))
+    engine.submit_decision(task_id, "approve")
+    engine.submit_decision(task_id, "both")
+    workspace = engine.store.state(task_id).workspace
+    assert Path(workspace).exists()
+
+    engine.cleanup_task(task_id)
+    assert not Path(workspace).exists()
+    types = [event.event_type for event in engine.store.stream(task_id).read()]
+    assert EventType.WORKSPACE_CLEANED in types
+
+
+def test_cleanup_skips_non_terminal_tasks(project: Path, target_repo: Path) -> None:
+    adapter = MockAdapter(writes_files=VERDICTS)
+    engine = Engine(project, {name: adapter for name in AGENTS})
+    task_id = engine.start_task("standard-build", "x", target_repo=str(target_repo))
+    workspace = engine.store.state(task_id).workspace  # blocked at approve_plan
+    engine.cleanup_task(task_id)
+    assert Path(workspace).exists()  # not terminal → left alone
