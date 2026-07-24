@@ -49,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     start = sub.add_parser("start", help="start a new task")
     start.add_argument("flow")
     start.add_argument("request")
+    start.add_argument("--repo", default=None, help="target git repo for worktree isolation")
 
     status = sub.add_parser("status", help="show a task's state")
     status.add_argument("task_id")
@@ -63,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     engine = build_engine()
 
     if args.command == "start":
-        task_id = engine.start_task(args.flow, args.request)
+        task_id = engine.start_task(args.flow, args.request, target_repo=args.repo)
         _print_state(engine, task_id)
     elif args.command == "status":
         _print_state(engine, args.task_id)

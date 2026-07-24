@@ -33,6 +33,8 @@ class TaskState:
     current_node: str | None = None
     request: str = ""
     workspace: str | None = None
+    target_repo: str | None = None
+    task_branch: str | None = None
     rework_counts: dict[str, int] = field(default_factory=dict)
     total_cost_usd: float = 0.0
     open_gate: dict[str, Any] | None = None
@@ -54,6 +56,8 @@ def _apply(state: TaskState | None, event: Event) -> TaskState:
             flow_name=event.data.get("flow_name", ""),
             request=event.data.get("request", ""),
             workspace=event.data.get("workspace"),
+            target_repo=event.data.get("target_repo"),
+            task_branch=event.data.get("task_branch"),
         )
     assert state is not None, "first event must be TASK_CREATED"
 

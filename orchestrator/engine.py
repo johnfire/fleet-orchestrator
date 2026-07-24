@@ -17,6 +17,7 @@ from .events import Event, EventStream, EventType
 from .flow import Flow, Node, NodeType, OnFail, load_flow
 from .gates import run_gate
 from .store import TaskState, TaskStatus, TaskStore
+from .workspace import commit_all, create_worktree, push_branch
 
 _TERMINAL = "end"
 _ESCALATE = "escalate"
@@ -30,20 +31,36 @@ class Engine:
         self._adapters = adapters
         self.store = TaskStore(self._runs_dir)
 
-    def start_task(self, flow_name: str, request: str) -> str:
+    def start_task(self, flow_name: str, request: str, target_repo: str | None = None) -> str:
         flow = self._load(flow_name)
         task_id = f"task-{uuid.uuid4().hex[:8]}"
         workspace = self._runs_dir / task_id / "workspace"
-        workspace.mkdir(parents=True, exist_ok=True)
+        task_branch = self._prepare_workspace(flow, task_id, workspace, target_repo)
         stream = self.store.stream(task_id)
         self._emit(stream, task_id, EventType.TASK_CREATED, data={
             "flow_name": flow_name,
             "request": request,
             "workspace": str(workspace),
+            "target_repo": target_repo,
+            "task_branch": task_branch,
         })
         self._enter(stream, task_id, flow.start)
         self.run(task_id)
         return task_id
+
+    def _prepare_workspace(self, flow: Flow, task_id: str, workspace: Path,
+                           target_repo: str | None) -> str | None:
+        """Create an isolated worktree when a target repo is given; else a plain dir."""
+        uses_worktree = target_repo and flow.workspace.get("strategy") == "git-worktree"
+        if not uses_worktree:
+            workspace.mkdir(parents=True, exist_ok=True)
+            return None
+        branch = flow.workspace.get("task_branch", "task/{task_id}").format(task_id=task_id)
+        base = flow.workspace.get("base_branch", "main")
+        outcome = create_worktree(target_repo, workspace, branch, base)
+        if not outcome.ok:
+            raise RuntimeError(f"worktree setup failed: {outcome.output}")
+        return branch
 
     def run(self, task_id: str) -> TaskState:
         """Advance the task until it blocks on a human or reaches a terminal state."""
@@ -144,9 +161,31 @@ class Engine:
         return all_passed
 
     def _run_action(self, stream: EventStream, state: TaskState, node: Node) -> None:
-        # TODO(increment 2): real git push. For now the action is recorded and passes.
-        self._emit(stream, state.task_id, EventType.ACTION_RUN, node.node_id, {"action": node.action})
+        if node.action == "git_push":
+            self._git_push(stream, state, node)
+            return
+        self._emit(stream, state.task_id, EventType.ACTION_RUN, node.node_id,
+                   {"action": node.action, "skipped": "unknown action"})
         self._goto(stream, state.task_id, node, node.on_pass or _TERMINAL)
+
+    def _git_push(self, stream: EventStream, state: TaskState, node: Node) -> None:
+        if not (state.target_repo and state.task_branch and state.workspace):
+            self._emit(stream, state.task_id, EventType.ACTION_RUN, node.node_id,
+                       {"action": "git_push", "skipped": "no target repo / branch"})
+            self._goto(stream, state.task_id, node, node.on_pass or _TERMINAL)
+            return
+        flow = self._load(state.flow_name)
+        remote = flow.workspace.get("remote", "origin")
+        committed = commit_all(state.workspace, f"task {state.task_id}: automated build")
+        pushed = push_branch(state.workspace, remote, state.task_branch)
+        self._emit(stream, state.task_id, EventType.ACTION_RUN, node.node_id, {
+            "action": "git_push", "branch": state.task_branch, "remote": remote,
+            "committed": committed.output, "pushed": pushed.ok, "push_output": pushed.output,
+        })
+        if pushed.ok:
+            self._goto(stream, state.task_id, node, node.on_pass or _TERMINAL)
+        else:
+            self._escalate(stream, state.task_id, node, f"push failed: {pushed.output}")
 
     def _open_gate(self, stream: EventStream, task_id: str, node: Node) -> None:
         self._emit(stream, task_id, EventType.HUMAN_GATE_OPENED, node.node_id, {

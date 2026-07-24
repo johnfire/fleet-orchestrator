@@ -12,6 +12,7 @@ workspace:
   strategy: git-worktree
   base_branch: main
   task_branch: "task/{task_id}"
+  remote: origin
 
 # Gate commands are project-specific, so this generic flow ships none: the review
 # node's gates are recorded as visible skips until you configure them here (or in a
