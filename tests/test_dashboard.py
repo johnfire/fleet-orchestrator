@@ -11,8 +11,10 @@ from pathlib import Path
 
 import pytest
 
+import base64
+
 from orchestrator.adapters.mock import MockAdapter
-from orchestrator.dashboard import task_detail, task_summaries
+from orchestrator.dashboard import _Handler, task_detail, task_summaries
 from orchestrator.engine import Engine
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -52,3 +54,33 @@ def test_decision_is_reflected_in_read_model(engine: Engine) -> None:
     engine.submit_decision(task_id, "approve")  # what the dashboard POST does
     row = task_summaries(engine.store)[0]
     assert row["current_node"] == "decide_next"  # advanced past build + review
+
+
+class _FakeServer:
+    def __init__(self, auth):
+        self.auth = auth
+
+
+class _AuthProbe(_Handler):
+    def __init__(self, header):  # bypass BaseHTTPRequestHandler.__init__ (no socket)
+        self.headers = {"Authorization": header} if header else {}
+        self.server = _FakeServer(("chris", "s3cret"))
+
+
+def _basic(user: str, password: str) -> str:
+    return "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
+
+
+def test_auth_accepts_correct_credentials() -> None:
+    assert _AuthProbe(_basic("chris", "s3cret"))._authorized() is True
+
+
+def test_auth_rejects_wrong_and_missing_credentials() -> None:
+    assert _AuthProbe(_basic("chris", "wrong"))._authorized() is False
+    assert _AuthProbe(None)._authorized() is False
+
+
+def test_no_auth_configured_allows_all() -> None:
+    probe = _AuthProbe(None)
+    probe.server = _FakeServer(None)  # no credentials configured
+    assert probe._authorized() is True

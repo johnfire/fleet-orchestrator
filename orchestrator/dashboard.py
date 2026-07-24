@@ -8,6 +8,8 @@ extra to install and nothing extra to break.
 
 from __future__ import annotations
 
+import base64
+import hmac
 import json
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -52,7 +54,35 @@ class _Handler(BaseHTTPRequestHandler):
     def engine(self) -> Engine:
         return self.server.engine  # type: ignore[attr-defined]
 
+    def _authorized(self) -> bool:
+        """HTTP Basic Auth. When credentials are configured, every request needs them —
+        this is a control panel, so an unauthenticated request is never served."""
+        expected = self.server.auth  # type: ignore[attr-defined]
+        if not expected:
+            return True
+        header = self.headers.get("Authorization", "")
+        if not header.startswith("Basic "):
+            return False
+        try:
+            user, _, password = base64.b64decode(header[6:]).decode("utf-8").partition(":")
+        except (ValueError, UnicodeDecodeError):
+            return False
+        want_user, want_password = expected
+        return (hmac.compare_digest(user, want_user)
+                and hmac.compare_digest(password, want_password))
+
+    def _require_auth(self) -> bool:
+        if self._authorized():
+            return True
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="fleet-orchestrator"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
+
     def do_GET(self) -> None:
+        if not self._require_auth():
+            return
         path = urlparse(self.path).path
         if path == "/":
             self._send(200, _PAGE, content_type="text/html")
@@ -64,6 +94,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(404, "not found")
 
     def do_POST(self) -> None:
+        if not self._require_auth():
+            return
         path = urlparse(self.path).path
         parts = path.split("/")
         if not (path.startswith("/api/tasks/") and parts[-1] in ("decide", "resolve")):
@@ -95,10 +127,13 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(data), content_type="application/json")
 
 
-def serve(engine: Engine, port: int = 8787, host: str = "127.0.0.1") -> None:
+def serve(engine: Engine, port: int = 8787, host: str = "127.0.0.1",
+          auth: tuple[str, str] | None = None) -> None:
     server = ThreadingHTTPServer((host, port), _Handler)
     server.engine = engine  # type: ignore[attr-defined]
-    print(f"fleet-orchestrator dashboard on http://{host}:{port}")
+    server.auth = auth  # type: ignore[attr-defined]
+    guarded = "auth on" if auth else "NO AUTH — bind to localhost only"
+    print(f"fleet-orchestrator dashboard on http://{host}:{port} ({guarded})")
     server.serve_forever()
 
 

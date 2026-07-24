@@ -81,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
 
     dash = sub.add_parser("dashboard", help="serve the read-model dashboard")
     dash.add_argument("--port", type=int, default=8787)
+    dash.add_argument("--host", default="127.0.0.1")
 
     demo = sub.add_parser("demo", help="run a flow end-to-end with mock agents (no spend)")
     demo.add_argument("flow", nargs="?", default="standard-build")
@@ -105,7 +106,10 @@ def main(argv: list[str] | None = None) -> int:
             _print_state(engine, task_id)
     elif args.command == "dashboard":
         from .dashboard import serve
-        serve(engine, port=args.port)
+        user = os.environ.get("DASHBOARD_USER")
+        password = os.environ.get("DASHBOARD_PASSWORD")
+        auth = (user, password) if user and password else None
+        serve(engine, port=args.port, host=args.host, auth=auth)
     elif args.command == "demo":
         from .demo import run_demo
         demo_engine, task_id = run_demo(PROJECT_ROOT, args.flow)
