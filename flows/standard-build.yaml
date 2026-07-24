@@ -13,6 +13,15 @@ workspace:
   base_branch: main
   task_branch: "task/{task_id}"
 
+# Gate commands are project-specific, so this generic flow ships none: the review
+# node's gates are recorded as visible skips until you configure them here (or in a
+# per-repo copy of this flow). Uncomment and adapt to enforce real gating, e.g.:
+# gate_commands:
+#   run_build: "npm run build"
+#   run_tests: "npm test"
+#   lint: "npm run lint"
+#   coding_standards_check: "./scripts/standards-check.sh"
+
 bindings:
   planner:   { agent: claude-desktop, model: claude-opus-4-8, effort: high }
   builder:   { agent: opencode,       model: openrouter/deepseek-v4 }

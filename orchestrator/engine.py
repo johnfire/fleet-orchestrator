@@ -15,6 +15,7 @@ from pathlib import Path
 from .adapters.base import Adapter, AgentRequest
 from .events import Event, EventStream, EventType
 from .flow import Flow, Node, NodeType, OnFail, load_flow
+from .gates import run_gate
 from .store import TaskState, TaskStatus, TaskStore
 
 _TERMINAL = "end"
@@ -107,7 +108,7 @@ class Engine:
             "artifacts": result.artifacts, "findings": result.findings,
         })
 
-        gates_passed = self._run_gates(stream, state.task_id, node)
+        gates_passed = self._run_gates(stream, state.task_id, flow, node, state.workspace)
         if result.succeeded and gates_passed:
             self._emit(stream, state.task_id, EventType.NODE_PASSED, node.node_id)
             self._goto(stream, state.task_id, node, node.on_pass or _TERMINAL)
@@ -133,11 +134,14 @@ class Engine:
         })
         self._enter(stream, state.task_id, on_fail.route)
 
-    def _run_gates(self, stream: EventStream, task_id: str, node: Node) -> bool:
-        # TODO(increment 2): execute build/test/lint/standards as real subprocesses.
+    def _run_gates(self, stream: EventStream, task_id: str, flow: Flow, node: Node,
+                   workspace: str | None) -> bool:
+        all_passed = True
         for gate in node.gates:
-            self._emit(stream, task_id, EventType.GATE_RESULT, node.node_id, {"gate": gate, "passed": True})
-        return True
+            outcome = run_gate(gate, flow.gate_commands.get(gate), workspace or ".")
+            self._emit(stream, task_id, EventType.GATE_RESULT, node.node_id, outcome.as_event_data())
+            all_passed = all_passed and outcome.passed
+        return all_passed
 
     def _run_action(self, stream: EventStream, state: TaskState, node: Node) -> None:
         # TODO(increment 2): real git push. For now the action is recorded and passes.

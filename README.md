@@ -37,9 +37,13 @@ Increment 1 — the spine — is in place: event stream, task store, flow engine
 nodes, human gates, routing, rework counter), a mock adapter, and the real Claude Code
 adapter. Run `pytest` to see a flow execute end to end.
 
-Not built yet: builder/reviewer/pentester templates, objective gate execution
-(build/test/lint), the dashboard, the ntfy back-channel. See the flow strawman in
-`flows/standard-build.yaml` for the target.
+Objective gate execution is real: gates named on a node run as shell commands from
+the flow's `gate_commands` map, in the task workspace, and actually gate progression
+(a failing gate drives the rework loop). Unconfigured gate names are visible, logged
+skips — enforcement is opt-in per repo.
+
+Not built yet: builder/reviewer/pentester templates, real git-worktree isolation +
+push action, the dashboard, the ntfy back-channel. See `flows/standard-build.yaml`.
 
 ## Layout
 

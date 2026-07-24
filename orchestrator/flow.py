@@ -66,6 +66,7 @@ class Flow:
     human_channel: dict[str, Any] = field(default_factory=dict)
     workspace: dict[str, Any] = field(default_factory=dict)
     escalate: dict[str, Any] = field(default_factory=dict)
+    gate_commands: dict[str, str] = field(default_factory=dict)
 
     def node(self, node_id: str) -> Node:
         if node_id not in self.nodes:
@@ -88,6 +89,7 @@ def load_flow(flow_path: Path) -> Flow:
         human_channel=raw.get("human_channel", {}),
         workspace=raw.get("workspace", {}),
         escalate=raw.get("escalate", {}),
+        gate_commands=dict(raw.get("gate_commands", {})),
     )
 
 
